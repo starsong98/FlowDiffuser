@@ -9,10 +9,15 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from tqdm.auto import tqdm
+
+import csv
+import cv2
 
 import datasets
 from utils import flow_viz
 from utils import frame_utils
+from utils import error_viz
 
 from flowdiffuser import FlowDiffuser
 
@@ -76,13 +81,13 @@ def create_kitti_submission(model, iters=24, output_path='kitti_submission'):
 
 
 @torch.no_grad()
-def validate_chairs(model, iters=24):
+def validate_chairs(model, iters=24, output_path=None):
     """ Perform evaluation on the FlyingChairs (test) split """
     model.eval()
     epe_list = []
 
     val_dataset = datasets.FlyingChairs(split='validation')
-    for val_id in range(len(val_dataset)):
+    for val_id in tqdm(range(len(val_dataset))):
         image1, image2, flow_gt, _ = val_dataset[val_id]
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
@@ -97,7 +102,7 @@ def validate_chairs(model, iters=24):
 
 
 @torch.no_grad()
-def validate_sintel(model, iters=32):
+def validate_sintel(model, iters=32, output_path=None):
     """ Peform validation using the Sintel (train) split """
     model.eval()
     results = {}
@@ -105,7 +110,7 @@ def validate_sintel(model, iters=32):
         val_dataset = datasets.MpiSintel(split='training', dstype=dstype)
         epe_list = []
 
-        for val_id in range(len(val_dataset)):
+        for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on Sintel-train-{dstype}:"):
             image1, image2, flow_gt, _ = val_dataset[val_id]
             image1 = image1[None].cuda()
             image2 = image2[None].cuda()
@@ -132,16 +137,24 @@ def validate_sintel(model, iters=32):
 
 
 @torch.no_grad()
-def validate_kitti(model, iters=24):
+def validate_kitti(model, iters=24, output_path=None):
     """ Peform validation using the KITTI-2015 (train) split """
     model.eval()
     val_dataset = datasets.KITTI(split='training')
 
     out_list, epe_list = [], []
-    for val_id in range(len(val_dataset)):
+    # detailed stat saving - part 1 - header
+    if output_path is not None:
+        lines_to_save = [['filename0', 'filename1', 'kitti-epe', 'kitti-f1']]
+        if not os.path.isdir(output_path):
+            os.makedirs(output_path)
+
+    for val_id in tqdm(range(len(val_dataset)), desc="Validation on KITTI-15-train:"):
         image1, image2, flow_gt, valid_gt = val_dataset[val_id]
+        img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
+        
 
         padder = InputPadder(image1.shape, mode='kitti')
         image1, image2 = padder.pad(image1, image2)
@@ -151,6 +164,7 @@ def validate_kitti(model, iters=24):
 
         epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
         mag = torch.sum(flow_gt**2, dim=0).sqrt()
+        err = epe.clone()
 
         epe = epe.view(-1)
         mag = mag.view(-1)
@@ -160,11 +174,43 @@ def validate_kitti(model, iters=24):
         epe_list.append(epe[val].mean().item())
         out_list.append(out[val].cpu().numpy())
 
+        # detailed stat saving - part 2 & 3 - individual sample handling
+        if output_path is not None:
+            # detailed stat saving - part 2 - individual stats
+            filename0 = val_dataset.image_list[val_id][0]
+            filename1 = val_dataset.image_list[val_id][1]
+            epe_single = epe[val].mean().cpu().item()
+            f1_single = 100 * out[val].mean().item()
+            lines_to_save.append([filename0, filename1, epe_single, f1_single])
+
+            # detailed stat saving - part 3 - visuals
+            out_vis_dir = os.path.join(output_path, 'KITTI15-train')
+            if not os.path.isdir(out_vis_dir):
+                os.makedirs(out_vis_dir)
+            out_vis_path = os.path.join(out_vis_dir, os.path.basename(filename0))
+            #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt[0].permute(1, 2, 0).cpu().numpy())
+            gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
+            pred_vis = flow_viz.flow_to_image(flow_uv=flow.permute(1, 2, 0).cpu().numpy())
+            valid_mask = (valid_gt >= 0.5).cpu()
+            epe_vis = error_viz.visualize_error_map(err.cpu().numpy(), valid_mask)
+            combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
+            combined_vis = np.flip(combined_vis, axis=2)
+            cv2.imwrite(out_vis_path, combined_vis)
+
     epe_list = np.array(epe_list)
     out_list = np.concatenate(out_list)
 
     epe = np.mean(epe_list)
     f1 = 100 * np.mean(out_list)
+
+    # detailed stat saving - part 4 - average stats
+    if output_path is not None:
+        lines_to_save.append(['Averaged_stats', '', epe, f1])
+        out_filename = "KITTI15-train-stats.csv"
+        stat_path = os.path.join(output_path, out_filename)
+        with open(stat_path, 'a+', newline="") as fp:
+            writer = csv.writer(fp)
+            writer.writerows(lines_to_save)
 
     print("Validation KITTI: %f, %f" % (epe, f1))
     return {'kitti-epe': epe, 'kitti-f1': f1}
@@ -177,6 +223,7 @@ if __name__ == '__main__':
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--alternate_corr', action='store_true', help='use efficent correlation implementation')
+    parser.add_argument('--output_path', help="dataset for evaluation")
     args = parser.parse_args()
 
     model = torch.nn.DataParallel(FlowDiffuser(args))
@@ -190,12 +237,12 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         if args.dataset == 'chairs':
-            validate_chairs(model.module)
+            validate_chairs(model.module, args.output_path)
 
         elif args.dataset == 'sintel':
-            validate_sintel(model.module)
+            validate_sintel(model.module, args.output_path)
 
         elif args.dataset == 'kitti':
-            validate_kitti(model.module)
+            validate_kitti(model.module, output_path=args.output_path)
 
 
