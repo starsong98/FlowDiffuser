@@ -12,7 +12,9 @@
             "console": "integratedTerminal",
             "args": [
                 "--model", "checkpoints/FlowDiffuser-things.pth",
-                "--dataset", "kitti",
+                //"--dataset", "kitti",
+                //"--dataset", "chairs",
+                "--dataset", "sintel",
                 "--output_path", "results/modelzoo-T"
             ]
         }

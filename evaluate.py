@@ -85,18 +85,59 @@ def validate_chairs(model, iters=24, output_path=None):
     """ Perform evaluation on the FlyingChairs (test) split """
     model.eval()
     epe_list = []
+    # detailed stat saving - part 1 - header
+    if output_path is not None:
+        lines_to_save = [['filename0', 'filename1', 'epe']]
+        if not os.path.isdir(output_path):
+            os.makedirs(output_path)
 
-    val_dataset = datasets.FlyingChairs(split='validation')
+    #val_dataset = datasets.FlyingChairs(split='validation')
+    val_dataset = datasets.FlyingChairs(split='training')
     for val_id in tqdm(range(len(val_dataset))):
         image1, image2, flow_gt, _ = val_dataset[val_id]
+        img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
 
         _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
         epe = torch.sum((flow_pr[0].cpu() - flow_gt)**2, dim=0).sqrt()
+        err = epe.clone()   # for later
         epe_list.append(epe.view(-1).numpy())
 
+        # detailed stat saving - part 2 & 3 - individual sample handling
+        if output_path is not None:
+            # detailed stat saving - part 2 - individual stats
+            filename0 = val_dataset.image_list[val_id][0]
+            filename1 = val_dataset.image_list[val_id][1]
+            epe_single = epe.mean().cpu().item()
+            lines_to_save.append([filename0, filename1, epe_single])
+
+            # detailed stat saving - part 3 - visuals
+            #out_vis_dir = os.path.join(output_path, 'chairs-validation')
+            out_vis_dir = os.path.join(output_path, 'chairs-training')
+            if not os.path.isdir(out_vis_dir):
+                os.makedirs(out_vis_dir)
+            out_vis_path = os.path.join(out_vis_dir, os.path.basename(filename0).replace('.ppm', '.png'))
+            #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt[0].permute(1, 2, 0).cpu().numpy())
+            gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
+            pred_vis = flow_viz.flow_to_image(flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy())
+            epe_vis = error_viz.visualize_error_map(err.cpu().numpy())
+            combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
+            combined_vis = np.flip(combined_vis, axis=2)
+            cv2.imwrite(out_vis_path, combined_vis)
+
     epe = np.mean(np.concatenate(epe_list))
+
+    # detailed stat saving - part 4 - average stats
+    if output_path is not None:
+        lines_to_save.append(['Averaged_stats', '', epe])
+        #out_filename = "FlyingChairs-val-stats.csv"
+        out_filename = "FlyingChairs-train-stats.csv"
+        stat_path = os.path.join(output_path, out_filename)
+        with open(stat_path, 'a+', newline="") as fp:
+            writer = csv.writer(fp)
+            writer.writerows(lines_to_save)
+
     print("Validation Chairs EPE: %f" % epe)
     return {'chairs': epe}
 
@@ -109,9 +150,15 @@ def validate_sintel(model, iters=32, output_path=None):
     for dstype in ['clean', 'final']:
         val_dataset = datasets.MpiSintel(split='training', dstype=dstype)
         epe_list = []
+        # detailed stat saving - part 1 - header
+        if output_path is not None:
+            lines_to_save = [['filename0', 'filename1', 'epe']]
+            if not os.path.isdir(output_path):
+                os.makedirs(output_path)
 
         for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on Sintel-train-{dstype}:"):
             image1, image2, flow_gt, _ = val_dataset[val_id]
+            img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
             image1 = image1[None].cuda()
             image2 = image2[None].cuda()
 
@@ -122,13 +169,45 @@ def validate_sintel(model, iters=32, output_path=None):
             flow = padder.unpad(flow_pr[0]).cpu()
 
             epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
+            err = epe.clone()   # for later
             epe_list.append(epe.view(-1).numpy())
+
+            # detailed stat saving - part 2 & 3 - individual sample handling
+            if output_path is not None:
+                # detailed stat saving - part 2 - individual stats
+                filename0 = val_dataset.image_list[val_id][0]
+                filename1 = val_dataset.image_list[val_id][1]
+                epe_single = epe.mean().cpu().item()
+                lines_to_save.append([filename0, filename1, epe_single])
+
+                # detailed stat saving - part 3 - visuals
+                out_vis_dir = os.path.join(output_path, f'Sintel-train-{dstype}')
+                if not os.path.isdir(out_vis_dir):
+                    os.makedirs(out_vis_dir)
+                out_vis_path = os.path.join(out_vis_dir, os.path.basename(filename0))
+                #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt[0].permute(1, 2, 0).cpu().numpy())
+                gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
+                pred_vis = flow_viz.flow_to_image(flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy())
+                epe_vis = error_viz.visualize_error_map(err.cpu().numpy())
+                combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
+                combined_vis = np.flip(combined_vis, axis=2)
+                cv2.imwrite(out_vis_path, combined_vis)
 
         epe_all = np.concatenate(epe_list)
         epe = np.mean(epe_all)
         px1 = np.mean(epe_all<1)
         px3 = np.mean(epe_all<3)
         px5 = np.mean(epe_all<5)
+
+        # detailed stat saving - part 4 - average stats
+        if output_path is not None:
+            lines_to_save.append(['Averaged_stats', '', epe])
+            #out_filename = "FlyingChairs-val-stats.csv"
+            out_filename = f"Sintel-train-{dstype}.csv"
+            stat_path = os.path.join(output_path, out_filename)
+            with open(stat_path, 'a+', newline="") as fp:
+                writer = csv.writer(fp)
+                writer.writerows(lines_to_save)
 
         print("Validation (%s) EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (dstype, epe, px1, px3, px5))
         results[dstype] = np.mean(epe_list)
@@ -164,7 +243,7 @@ def validate_kitti(model, iters=24, output_path=None):
 
         epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
         mag = torch.sum(flow_gt**2, dim=0).sqrt()
-        err = epe.clone()
+        err = epe.clone()   # for later
 
         epe = epe.view(-1)
         mag = mag.view(-1)
@@ -237,10 +316,10 @@ if __name__ == '__main__':
 
     with torch.no_grad():
         if args.dataset == 'chairs':
-            validate_chairs(model.module, args.output_path)
+            validate_chairs(model.module, output_path=args.output_path)
 
         elif args.dataset == 'sintel':
-            validate_sintel(model.module, args.output_path)
+            validate_sintel(model.module, output_path=args.output_path)
 
         elif args.dataset == 'kitti':
             validate_kitti(model.module, output_path=args.output_path)
