@@ -158,6 +158,30 @@ class FlyingThings3D(FlowDataset):
                             self.flow_list += [ flows[i+1] ]
       
 
+class FlyingThings3DTest(FlowDataset):
+    def __init__(self, aug_params=None, root='datasets/FlyingThings3D', dstype='frames_cleanpass'):
+        super(FlyingThings3DTest, self).__init__(aug_params)
+
+        for cam in ['left']:
+            for direction in ['into_future', 'into_past']:
+                image_dirs = sorted(glob(osp.join(root, dstype, 'TEST/*/*')))
+                image_dirs = sorted([osp.join(f, cam) for f in image_dirs])
+
+                flow_dirs = sorted(glob(osp.join(root, 'optical_flow/TEST/*/*')))
+                flow_dirs = sorted([osp.join(f, direction, cam) for f in flow_dirs])
+
+                for idir, fdir in zip(image_dirs, flow_dirs):
+                    images = sorted(glob(osp.join(idir, '*.png')) )
+                    flows = sorted(glob(osp.join(fdir, '*.pfm')) )
+                    for i in range(len(flows)-1):
+                        if direction == 'into_future':
+                            self.image_list += [ [images[i], images[i+1]] ]
+                            self.flow_list += [ flows[i] ]
+                        elif direction == 'into_past':
+                            self.image_list += [ [images[i+1], images[i]] ]
+                            self.flow_list += [ flows[i+1] ]
+
+
 class KITTI(FlowDataset):
     def __init__(self, aug_params=None, split='training', root='datasets/KITTI'):
         super(KITTI, self).__init__(aug_params, sparse=True)

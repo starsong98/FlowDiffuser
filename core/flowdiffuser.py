@@ -285,7 +285,7 @@ class FlowDiffuser(nn.Module):
         flow = coords1 - coords0 
         x_pred = flow / self.norm_const
 
-        return x_pred, flow_s, [net, up_mask, coords1]    
+        return x_pred, flow_s, [net, up_mask, coords1]
 
     def _predict_noise_from_start(self, x_t, t, x0):
         return (
