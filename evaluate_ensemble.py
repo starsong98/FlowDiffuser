@@ -77,7 +77,7 @@ def create_kitti_submission(model, iters=24, output_path='kitti_submission'):
         flow = padder.unpad(flow_pr[0]).permute(1, 2, 0).cpu().numpy()
 
         output_filename = os.path.join(output_path, frame_id)
-        frame_utils.writeFlowKITTI(output_filename, flow)   # flow is numpy ndarray, shape (H, W, 2)
+        frame_utils.writeFlowKITTI(output_filename, flow)
 
 
 @torch.no_grad()
@@ -147,13 +147,6 @@ def validate_chairs(model, iters=24, output_path=None, split='validation'):
             combined_vis = np.flip(combined_vis, axis=2)
             cv2.imwrite(out_vis_path, combined_vis)
 
-            # detailed stat saving - part 3.5 - flow files
-            flowname = val_dataset.flow_list[val_id]
-            out_flow_path = os.path.join(out_vis_dir, os.path.basename(flowname))
-            #print(f'supposed to write to {out_flow_path}')
-            frame_utils.writeFlow(out_flow_path, flow_pr[0].permute(1, 2, 0).cpu().numpy())
-            #break
-
     epe = np.mean(np.concatenate(epe_list))
 
     # detailed stat saving - part 4 - average stats
@@ -209,9 +202,7 @@ def validate_sintel(model, iters=32, output_path=None):
                 lines_to_save.append([filename0, filename1, epe_single])
 
                 # detailed stat saving - part 3 - visuals
-                #out_vis_dir = os.path.join(output_path, f'Sintel-train-{dstype}')
-                filenames_split = filename0.split('/')
-                out_vis_dir = os.path.join(output_path, 'Sintel-train', dstype, filenames_split[-2])
+                out_vis_dir = os.path.join(output_path, f'Sintel-train-{dstype}')
                 if not os.path.isdir(out_vis_dir):
                     os.makedirs(out_vis_dir)
                 out_vis_path = os.path.join(out_vis_dir, os.path.basename(filename0))
@@ -222,17 +213,6 @@ def validate_sintel(model, iters=32, output_path=None):
                 combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
                 combined_vis = np.flip(combined_vis, axis=2)
                 cv2.imwrite(out_vis_path, combined_vis)
-
-                # detailed stat saving - part 3.5 - flow files
-                flowname = val_dataset.flow_list[val_id]
-                #out_flow_dir = os.path.join(out_vis_dir, 'raw_flows')
-                #if not os.path.isdir(out_flow_dir):
-                #    os.makedirs(out_flow_dir)
-                #out_flow_path = os.path.join(out_flow_dir, os.path.basename(flowname))
-                out_flow_path = os.path.join(out_vis_dir, os.path.basename(flowname))
-                #print(f'supposed to write to {out_flow_path}')
-                frame_utils.writeFlow(out_flow_path, flow.permute(1, 2, 0).numpy())
-                #break
 
         epe_all = np.concatenate(epe_list)
         epe = np.mean(epe_all)
@@ -317,16 +297,6 @@ def validate_kitti(model, iters=24, output_path=None):
             combined_vis = np.flip(combined_vis, axis=2)
             cv2.imwrite(out_vis_path, combined_vis)
 
-            # detailed stat saving - part 3.5 - flow files
-            flowname = val_dataset.flow_list[val_id]
-            out_flow_dir = os.path.join(out_vis_dir, 'raw_flows')
-            if not os.path.isdir(out_flow_dir):
-                os.makedirs(out_flow_dir)
-            out_flow_path = os.path.join(out_flow_dir, os.path.basename(flowname))
-            #print(f'supposed to write to {out_flow_path}')
-            frame_utils.writeFlowKITTI(out_flow_path, flow.permute(1, 2, 0).numpy())
-            #break
-
     epe_list = np.array(epe_list)
     out_list = np.concatenate(out_list)
 
@@ -344,99 +314,6 @@ def validate_kitti(model, iters=24, output_path=None):
 
     print("Validation KITTI: %f, %f" % (epe, f1))
     return {'kitti-epe': epe, 'kitti-f1': f1}
-
-
-@torch.no_grad()
-def validate_things(model, iters=32, output_path=None):
-    """ Peform validation using the FlyingThings3d (test) split """
-    model.eval()
-    results = {}
-    for dstype in ['frames_cleanpass', 'frames_finalpass']:
-        val_dataset = datasets.FlyingThings3DTest(dstype=dstype)    # C+T was indeed trained using both rendering psases
-        epe_list = []
-        # detailed stat saving - part 1 - header
-        if output_path is not None:
-            lines_to_save = [['filename0', 'filename1', 'flowname', 'epe']]
-            if not os.path.isdir(output_path):
-                os.makedirs(output_path)
-
-        for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on FT3D-TEST-{dstype}:"):
-            image1, image2, flow_gt, _ = val_dataset[val_id]
-            img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
-            image1 = image1[None].cuda()
-            image2 = image2[None].cuda()
-
-            padder = InputPadder(image1.shape)
-            image1, image2 = padder.pad(image1, image2)
-
-            flow_low, flow_pr = model(image1, image2, iters=iters, test_mode=True)
-            flow = padder.unpad(flow_pr[0]).cpu()
-
-            epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
-            err = epe.clone()   # for later
-            epe_list.append(epe.view(-1).numpy())
-
-            # detailed stat saving - part 2 & 3 - individual sample handling
-            if output_path is not None:
-                # detailed stat saving - part 2 - individual stats
-                filename0 = val_dataset.image_list[val_id][0]
-                filename1 = val_dataset.image_list[val_id][1]
-                flowname = val_dataset.flow_list[val_id]
-                epe_single = epe.mean().cpu().item()
-                
-                out_vis_dir = os.path.join(output_path, f'Things-test/{dstype}')
-                sub1, sub2, sub3, visname = flowname.split('/')[-4:]
-                #sub01, sub02, sub03, name0 = filename0.split('/')[-4:]
-                #sub11, sub12, sub13, name1 = filename1.split('/')[-4:]
-                out_flow_path = os.path.join(out_vis_dir, sub1, sub2, sub3, visname)
-                out_vis_path = out_flow_path.replace('.pfm', '.png')
-                if not os.path.isdir(os.path.dirname(out_flow_path)):
-                    os.makedirs(os.path.dirname(out_flow_path))
-                lines_to_save.append([filename0, filename1, flowname, epe_single])
-                #lines_to_save.append([
-                #    os.path.join(sub01, sub02, sub03, name0),   # filename0, trimmed
-                #    os.path.join(sub11, sub12, sub13, name1),   # filename1, trimmed
-                #    os.path.join(sub1, sub2, sub3, visname),   # flowname, trimmed
-                #    epe_single])
-                #break
-
-                # detailed stat saving - part 3 - visuals
-                #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
-                #pred_vis = flow_viz.flow_to_image(flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy())           
-                #pred_vis, gt_vis = error_viz.compare_flow_viz(
-                #    out_flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy(),
-                #    gt_flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy(),
-                #)
-                epe_vis = error_viz.visualize_error_map(err.cpu().numpy())
-                #combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
-                combined_vis = np.concatenate([img_pair_overlay, epe_vis], axis=0)
-                #ombined_vis = np.flip(combined_vis, axis=2)
-                cv2.imwrite(out_vis_path, combined_vis)
-
-                # detailed stat saving - part 3.5 - flow files
-                frame_utils.writeFlow(out_flow_path, flow.permute(1, 2, 0).numpy())
-                #break
-
-        epe_all = np.concatenate(epe_list)
-        epe = np.mean(epe_all)
-        px1 = np.mean(epe_all<1)
-        px3 = np.mean(epe_all<3)
-        px5 = np.mean(epe_all<5)
-
-        # detailed stat saving - part 4 - average stats
-        if output_path is not None:
-            lines_to_save.append(['Averaged_stats', '', '', epe])
-            #out_filename = "FlyingChairs-val-stats.csv"
-            out_filename = f"FlyingThings3D-test-{dstype}.csv"
-            stat_path = os.path.join(output_path, out_filename)
-            with open(stat_path, 'a+', newline="") as fp:
-                writer = csv.writer(fp)
-                writer.writerows(lines_to_save)
-
-        print("Validation (%s) EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (dstype, epe, px1, px3, px5))
-        results[dstype] = np.mean(epe_list)
-
-    return results
 
 
 if __name__ == '__main__':
@@ -468,19 +345,11 @@ if __name__ == '__main__':
         elif args.dataset == 'fcdn-train':
             validate_chairs(model.module, output_path=args.output_path, split='fcdn-train')
 
-        elif args.dataset == 'things':
-            validate_things(model.module, output_path=args.output_path)
-
         elif args.dataset == 'sintel':
             validate_sintel(model.module, output_path=args.output_path)
 
         elif args.dataset == 'kitti':
             validate_kitti(model.module, output_path=args.output_path)
-        
-        elif args.dataset == 'kitti-submission':
-            create_kitti_submission(model.module, output_path=args.output_path)
-        elif args.dataset == 'sintel-submission':
-            create_sintel_submission(model.module, output_path=args.output_path)
         else:
             raise ValueError(f"args.dataset=\'{args.dataset}\' not implemented")
 
