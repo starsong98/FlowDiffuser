@@ -141,58 +141,63 @@ def train(args):
     scaler = GradScaler(enabled=args.mixed_precision)
     logger = Logger(model, scheduler)
 
-    VAL_FREQ = 5000
+    #VAL_FREQ = 5000
+    VAL_FREQ = 100
     add_noise = True
 
     should_keep_training = True
-    while should_keep_training:
 
-        for i_batch, data_blob in enumerate(train_loader):
-            optimizer.zero_grad()
-            image1, image2, flow, valid = [x.cuda() for x in data_blob]
+    with tqdm(total=args.num_steps) as progress_bar:
 
-            if args.add_noise:
-                stdv = np.random.uniform(0.0, 5.0)
-                image1 = (image1 + stdv * torch.randn(*image1.shape).cuda()).clamp(0.0, 255.0)
-                image2 = (image2 + stdv * torch.randn(*image2.shape).cuda()).clamp(0.0, 255.0)
+        while should_keep_training:
 
-            flow_predictions = model(image1, image2, iters=args.iters, flow_gt=flow)            
+            for i_batch, data_blob in enumerate(train_loader):
+                optimizer.zero_grad()
+                image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
-            loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)                
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-            
-            scaler.step(optimizer)
-            scheduler.step()
-            scaler.update()
+                if args.add_noise:
+                    stdv = np.random.uniform(0.0, 5.0)
+                    image1 = (image1 + stdv * torch.randn(*image1.shape).cuda()).clamp(0.0, 255.0)
+                    image2 = (image2 + stdv * torch.randn(*image2.shape).cuda()).clamp(0.0, 255.0)
 
-            logger.push(metrics)
+                flow_predictions = model(image1, image2, iters=args.iters, flow_gt=flow)            
 
-            if total_steps % VAL_FREQ == VAL_FREQ - 1:
-                PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
-                torch.save(model.state_dict(), PATH)
-
-                results = {}
-                for val_dataset in args.validation:
-                    if val_dataset == 'chairs':
-                        results.update(evaluate.validate_chairs(model.module))
-                    elif val_dataset == 'sintel':
-                        results.update(evaluate.validate_sintel(model.module))
-                    elif val_dataset == 'kitti':
-                        results.update(evaluate.validate_kitti(model.module))
-
-                logger.write_dict(results)
+                loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)                
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 
-                model.train()
-                if args.stage != 'chairs':
-                    model.module.freeze_bn()
-            
-            total_steps += 1
+                scaler.step(optimizer)
+                scheduler.step()
+                scaler.update()
 
-            if total_steps > args.num_steps:
-                should_keep_training = False
-                break
+                logger.push(metrics)
+
+                if total_steps % VAL_FREQ == VAL_FREQ - 1:
+                    PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
+                    torch.save(model.state_dict(), PATH)
+
+                    results = {}
+                    for val_dataset in args.validation:
+                        if val_dataset == 'chairs':
+                            results.update(evaluate.validate_chairs(model.module))
+                        elif val_dataset == 'sintel':
+                            results.update(evaluate.validate_sintel(model.module))
+                        elif val_dataset == 'kitti':
+                            results.update(evaluate.validate_kitti(model.module))
+
+                    logger.write_dict(results)
+                    
+                    model.train()
+                    if args.stage != 'chairs':
+                        model.module.freeze_bn()
+                
+                total_steps += 1
+                progress_bar.update()
+
+                if total_steps > args.num_steps:
+                    should_keep_training = False
+                    break
 
     logger.close()
     PATH = 'checkpoints/%s.pth' % args.name
@@ -204,7 +209,7 @@ def train(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='flowdiffuser', help="name your experiment")
-    parser.add_argument('--stage', help="determines which dataset to use for training") 
+    parser.add_argument('--stage', help="determines which dataset to use for training")
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--validation', type=str, nargs='+')

@@ -19,7 +19,7 @@ class FlowAugmentor:
         self.crop_size = crop_size
         self.min_scale = min_scale
         self.max_scale = max_scale
-        self.spatial_aug_prob = 0.8
+        self.spatial_aug_prob = 1.0
         self.stretch_prob = 0.8
         self.max_stretch = 0.2
 
