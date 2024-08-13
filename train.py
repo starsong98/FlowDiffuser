@@ -79,7 +79,8 @@ class Logger:
         self.scheduler = scheduler
         self.total_steps = 0
         self.running_loss = {}
-        self.writer = None
+        #self.writer = None
+        self.writer = SummaryWriter()
 
     def _print_training_status(self):
         metrics_data = [self.running_loss[k]/SUM_FREQ for k in sorted(self.running_loss.keys())]
@@ -141,37 +142,54 @@ def train(args):
     scaler = GradScaler(enabled=args.mixed_precision)
     logger = Logger(model, scheduler)
 
-    VAL_FREQ = 5000
+    #VAL_FREQ = 5000
+    #VAL_FREQ = 100
+    #VAL_FREQ = 10
+    VAL_FREQ = args.val_freq
     add_noise = True
 
     should_keep_training = True
-    while should_keep_training:
 
-        for i_batch, data_blob in enumerate(train_loader):
-            optimizer.zero_grad()
-            image1, image2, flow, valid = [x.cuda() for x in data_blob]
+    with tqdm(total=args.num_steps) as progress_bar:
 
-            if args.add_noise:
-                stdv = np.random.uniform(0.0, 5.0)
-                image1 = (image1 + stdv * torch.randn(*image1.shape).cuda()).clamp(0.0, 255.0)
-                image2 = (image2 + stdv * torch.randn(*image2.shape).cuda()).clamp(0.0, 255.0)
+        while should_keep_training:
 
-            flow_predictions = model(image1, image2, iters=args.iters, flow_gt=flow)            
+            for i_batch, data_blob in enumerate(train_loader):
+                optimizer.zero_grad()
+                image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
-            loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)                
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-            
-            scaler.step(optimizer)
-            scheduler.step()
-            scaler.update()
+                if args.add_noise:
+                    stdv = np.random.uniform(0.0, 5.0)
+                    image1 = (image1 + stdv * torch.randn(*image1.shape).cuda()).clamp(0.0, 255.0)
+                    image2 = (image2 + stdv * torch.randn(*image2.shape).cuda()).clamp(0.0, 255.0)
 
-            logger.push(metrics)
+                flow_predictions = model(image1, image2, iters=args.iters, flow_gt=flow)            
 
-            if total_steps % VAL_FREQ == VAL_FREQ - 1:
-                PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
-                torch.save(model.state_dict(), PATH)
+                loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)                
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                # gradient NaN handling
+                if torch.isnan(loss).any():
+                    print(f"NaN detected in loss, iteration # {total_steps}")
+                nans_detected = False
+                for name, param in model.module.named_parameters():
+                    if param.grad is not None and torch.isnan(param.grad).any():
+                        param.grad = torch.zeros_like(param.grad)
+                        logger.writer.add_text('NaN Gradients', f'Iteration {total_steps}: {name}', total_steps)
+                        nans_detected = True
+                if nans_detected:
+                    print(f'NaNs detected in gradients, iteration # {total_steps} - zeroing out all affected gradients')
+
+                scaler.step(optimizer)
+                scheduler.step()
+                scaler.update()
+
+                logger.push(metrics)
+
+                if total_steps % VAL_FREQ == VAL_FREQ - 1:
+                    PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
+                    torch.save(model.state_dict(), PATH)
 
                 results = {}
                 for val_dataset in args.validation:
@@ -184,17 +202,18 @@ def train(args):
                     elif val_dataset == 'autoflow':
                         results.update(evaluate.validate_autoflow(model.module, split='subval'))
 
-                logger.write_dict(results)
+                    logger.write_dict(results)
+                    
+                    model.train()
+                    if args.stage != 'chairs':
+                        model.module.freeze_bn()
                 
-                model.train()
-                if args.stage != 'chairs':
-                    model.module.freeze_bn()
-            
-            total_steps += 1
+                total_steps += 1
+                progress_bar.update()
 
-            if total_steps > args.num_steps:
-                should_keep_training = False
-                break
+                if total_steps > args.num_steps:
+                    should_keep_training = False
+                    break
 
     logger.close()
     PATH = 'checkpoints/%s.pth' % args.name
@@ -206,7 +225,7 @@ def train(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--name', default='flowdiffuser', help="name your experiment")
-    parser.add_argument('--stage', help="determines which dataset to use for training") 
+    parser.add_argument('--stage', help="determines which dataset to use for training")
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--validation', type=str, nargs='+')
@@ -225,6 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--gamma', type=float, default=0.8, help='exponential weighting')
     parser.add_argument('--add_noise', action='store_true')
+    parser.add_argument('--val_freq', default=5000, type=int, help="no. of steps before validation")
     args = parser.parse_args()
 
     torch.manual_seed(1234)

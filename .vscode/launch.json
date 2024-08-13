@@ -40,6 +40,57 @@
                 //"--output_path", "results/modelzoo-T"
                 "--output_path", "results/modelzoo-T-debug"
             ]
+        }
+        */
+        
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--name", "fd-debug-sintel",
+                "--stage", "sintel",
+                "--validation", "sintel", "kitti",
+                "--restore_ckpt", "checkpoints/FlowDiffuser-things.pth",
+                "--gpus", "0", "1",
+                "--num_steps", "500",
+                "--batch_size", "2",
+                "--lr", "0.000175",
+                "--image_size", "432", "960",
+                "--wdecay", "0.00001",
+                "--gamma", "0.85",
+                "--mixed_precision",
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "4,5"
+            }
+        }
+        
+        /*{
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--name", "fd-debug1-kitti",
+                "--stage", "kitti",
+                "--validation", "kitti",
+                "--restore_ckpt", "checkpoints/FlowDiffuser-things.pth",
+                "--gpus", "0", "1",
+                "--num_steps", "150000",
+                "--batch_size", "2",
+                "--lr", "0.0001",
+                "--image_size", "432", "960",
+                "--wdecay", "0.00001",
+                "--gamma", "0.85",
+                "--mixed_precision",
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "4,5"
+            }
         }*/
     ]
 }
