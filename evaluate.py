@@ -1,4 +1,5 @@
 import sys
+
 sys.path.append('core')
 
 from PIL import Image
@@ -168,6 +169,91 @@ def validate_chairs(model, iters=24, output_path=None, split='validation'):
 
     print("Validation Chairs EPE: %f" % epe)
     return {'chairs': epe}
+
+
+@torch.no_grad()
+def validate_autoflow(model, iters=24, output_path=None, split='subval'):
+    """ Perform evaluation on the AutoFlow datset """
+    model.eval()
+    epe_list = []
+    # detailed stat saving - part 1 - header
+    if output_path is not None:
+        lines_to_save = [['filename0', 'filename1', 'epe']]
+        if not os.path.isdir(output_path):
+            os.makedirs(output_path)
+
+    if split == 'train':
+        val_dataset = datasets.AutoFlow(split='train')
+        out_filename = "AutoFlow-full-stats.csv"
+        out_vis_dir = os.path.join(output_path, 'autoflow-full')
+        print("Validation on full AutoFlow dataset")
+    elif split == 'subtrain':
+        val_dataset = datasets.AutoFlow(split='subtrain')
+        out_filename = "AutoFlow-subtrain-stats.csv"
+        out_vis_dir = os.path.join(output_path, 'autoflow-subtrain')
+        print("Validation on AutoFlow training split")
+    elif split == 'subval':
+        val_dataset = datasets.AutoFlow(split='subval')
+        out_filename = "AutoFlow-subval-stats.csv"
+        out_vis_dir = os.path.join(output_path, 'autoflow-subval')
+        print("Validation on AutoFlow validation split")
+    else:
+        raise ValueError("split type not implemented")
+
+    for val_id in tqdm(range(len(val_dataset))):
+        image1, image2, flow_gt, _ = val_dataset[val_id]
+        img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
+        image1 = image1[None].cuda()
+        image2 = image2[None].cuda()
+
+        _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+        epe = torch.sum((flow_pr[0].cpu() - flow_gt)**2, dim=0).sqrt()
+        err = epe.clone()   # for later
+        epe_list.append(epe.view(-1).numpy())
+
+        # detailed stat saving - part 2 & 3 - individual sample handling
+        if output_path is not None:
+            # detailed stat saving - part 2 - individual stats
+            filename0 = val_dataset.image_list[val_id][0]
+            filename1 = val_dataset.image_list[val_id][1]
+            epe_single = epe.mean().cpu().item()
+            lines_to_save.append([filename0, filename1, epe_single])
+
+            # detailed stat saving - part 3 - visuals
+            #out_vis_dir = os.path.join(output_path, 'chairs-validation')
+            #out_vis_dir = os.path.join(output_path, 'chairs-training')
+            if not os.path.isdir(out_vis_dir):
+                os.makedirs(out_vis_dir)
+            out_vis_path = os.path.join(out_vis_dir, os.path.basename(filename0).replace('.ppm', '.png'))
+            #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt[0].permute(1, 2, 0).cpu().numpy())
+            gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
+            pred_vis = flow_viz.flow_to_image(flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy())
+            epe_vis = error_viz.visualize_error_map(err.cpu().numpy())
+            combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
+            combined_vis = np.flip(combined_vis, axis=2)
+            cv2.imwrite(out_vis_path, combined_vis)
+
+            # detailed stat saving - part 3.5 - flow files
+            flowname = val_dataset.flow_list[val_id]
+            out_flow_path = os.path.join(out_vis_dir, os.path.basename(flowname))
+            #print(f'supposed to write to {out_flow_path}')
+            frame_utils.writeFlow(out_flow_path, flow_pr[0].permute(1, 2, 0).cpu().numpy())
+            #break
+
+    epe = np.mean(np.concatenate(epe_list))
+
+    # detailed stat saving - part 4 - average stats
+    if output_path is not None:
+        lines_to_save.append(['Averaged_stats', '', epe])
+        #out_filename = "FlyingChairs-val-stats.csv"
+        #out_filename = "FlyingChairs-train-stats.csv"
+        stat_path = os.path.join(output_path, out_filename)
+        with open(stat_path, 'a+', newline="") as fp:
+            writer = csv.writer(fp)
+            writer.writerows(lines_to_save)
+
+    print("Validation AutoFlow EPE: %f" % epe)
+    return {'autoflow': epe}
 
 
 @torch.no_grad()
@@ -360,8 +446,10 @@ def validate_things(model, iters=32, output_path=None):
             if not os.path.isdir(output_path):
                 os.makedirs(output_path)
 
-        for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on FT3D-TEST-{dstype}:"):
-            image1, image2, flow_gt, _ = val_dataset[val_id]
+        len_val = len(val_dataset) if output_path is not None else 1000
+        #for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on FT3D-TEST-{dstype}:"):
+        for val_id in tqdm(range(len_val), desc=f"Validation on FT3D-TEST-{dstype}:"):
+            image1, image2, flow_gt, valid_gt = val_dataset[val_id]
             img_pair_overlay = ((image1 + image2) / 2).permute(1, 2, 0)    # for later
             image1 = image1[None].cuda()
             image2 = image2[None].cuda()
@@ -372,9 +460,12 @@ def validate_things(model, iters=32, output_path=None):
             flow_low, flow_pr = model(image1, image2, iters=iters, test_mode=True)
             flow = padder.unpad(flow_pr[0]).cpu()
 
-            epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()
-            err = epe.clone()   # for later
-            epe_list.append(epe.view(-1).numpy())
+            epe = torch.sum((flow - flow_gt)**2, dim=0).sqrt()  # [H, W]
+            err = epe.clone()   # for later; [H, W]
+            #epe_list.append(epe.view(-1).numpy())
+            val = valid_gt >= 0.5   # [H, W]
+            #epe_list.append(epe[val].view(-1).numpy())
+            epe_list.append(epe[val].mean().item())
 
             # detailed stat saving - part 2 & 3 - individual sample handling
             if output_path is not None:
@@ -385,10 +476,12 @@ def validate_things(model, iters=32, output_path=None):
                 epe_single = epe.mean().cpu().item()
                 
                 out_vis_dir = os.path.join(output_path, f'Things-test/{dstype}')
-                sub1, sub2, sub3, visname = flowname.split('/')[-4:]
+                #sub1, sub2, sub3, visname = flowname.split('/')[-4:]
+                sub_A, sub_seq, sub_t, sub_lr, visname = flowname.split('/')[-5:]
                 #sub01, sub02, sub03, name0 = filename0.split('/')[-4:]
                 #sub11, sub12, sub13, name1 = filename1.split('/')[-4:]
-                out_flow_path = os.path.join(out_vis_dir, sub1, sub2, sub3, visname)
+                #out_flow_path = os.path.join(out_vis_dir, sub1, sub2, sub3, visname)
+                out_flow_path = os.path.join(out_vis_dir, f"{sub_A}-{sub_seq}", f"{sub_t}-{visname[-10:]}")
                 out_vis_path = out_flow_path.replace('.pfm', '.png')
                 if not os.path.isdir(os.path.dirname(out_flow_path)):
                     os.makedirs(os.path.dirname(out_flow_path))
@@ -403,13 +496,14 @@ def validate_things(model, iters=32, output_path=None):
                 # detailed stat saving - part 3 - visuals
                 #gt_vis = flow_viz.flow_to_image(flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy())
                 #pred_vis = flow_viz.flow_to_image(flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy())           
-                #pred_vis, gt_vis = error_viz.compare_flow_viz(
-                #    out_flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy(),
-                #    gt_flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy(),
-                #)
+                pred_vis, gt_vis = error_viz.compare_flow_viz(
+                    out_flow_uv=flow_pr[0].permute(1, 2, 0).cpu().numpy(),
+                    gt_flow_uv=flow_gt.permute(1, 2, 0).cpu().numpy(),
+                    valid_mask=val,
+                )
                 epe_vis = error_viz.visualize_error_map(err.cpu().numpy())
-                #combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
-                combined_vis = np.concatenate([img_pair_overlay, epe_vis], axis=0)
+                combined_vis = np.concatenate([img_pair_overlay, pred_vis, gt_vis, epe_vis], axis=0)
+                #combined_vis = np.concatenate([img_pair_overlay, epe_vis], axis=0)
                 #ombined_vis = np.flip(combined_vis, axis=2)
                 cv2.imwrite(out_vis_path, combined_vis)
 
@@ -417,7 +511,8 @@ def validate_things(model, iters=32, output_path=None):
                 frame_utils.writeFlow(out_flow_path, flow.permute(1, 2, 0).numpy())
                 #break
 
-        epe_all = np.concatenate(epe_list)
+        #epe_all = np.concatenate(epe_list)
+        epe_all = np.array(epe_list)
         epe = np.mean(epe_all)
         px1 = np.mean(epe_all<1)
         px3 = np.mean(epe_all<3)
@@ -467,6 +562,13 @@ if __name__ == '__main__':
             validate_chairs(model.module, output_path=args.output_path, split='fcdn-val')
         elif args.dataset == 'fcdn-train':
             validate_chairs(model.module, output_path=args.output_path, split='fcdn-train')
+
+        elif args.dataset == 'autoflow':
+            validate_autoflow(model.module, output_path=args.output_path, split='train')
+        elif args.dataset == 'autoflow-subtrain':
+            validate_autoflow(model.module, output_path=args.output_path, split='subtrain')
+        elif args.dataset == 'autoflow-subval':
+            validate_autoflow(model.module, output_path=args.output_path, split='subval')
 
         elif args.dataset == 'things':
             validate_things(model.module, output_path=args.output_path)

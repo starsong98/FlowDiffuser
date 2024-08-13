@@ -220,12 +220,51 @@ class HD1K(FlowDataset):
             seq_ix += 1
 
 
+"""
+Implementation based on PTLFlow & Open-DDVM
+"""
+class AutoFlow(FlowDataset):
+    def __init__(self, aug_params=None, split='train', root='datasets/AutoFlow'):
+        super(AutoFlow, self).__init__(aug_params)
+
+        batches = sorted(
+            glob(osp.join(root, 'static_40k_png_1_of_4/*')) + glob(osp.join(root, 'static_40k_png_2_of_4/*'))
+            + glob(osp.join(root, 'static_40k_png_3_of_4/*')) + glob(osp.join(root, 'static_40k_png_4_of_4/*')))
+
+        # determine splits
+        with open("AutoFlow_val.txt", "r") as f:
+            val_names = f.read().strip().splitlines()
+
+        if split == "train":
+            remove_names = []
+        elif split == "subtrain":
+            remove_names = val_names
+        elif split == "subval":
+            remove_names = [os.path.basename(batchid) for batchid in batches if os.path.basename(batchid) not in val_names]
+        else:
+            raise ValueError("split can be either \'train\', \'subtrain\', or \'subval\'")
+
+        for i in range(len(batches)):
+            batchid = batches[i]
+            if os.path.basename(batchid) not in remove_names:
+                self.flow_list += [osp.join(batchid, 'forward.flo')]
+                self.image_list += [[osp.join(batchid, 'im0.png'), osp.join(batchid, 'im1.png')]]
+
+
 def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     """ Create the data loader for the corresponding trainign set """
 
     if args.stage == 'chairs':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
         train_dataset = FlyingChairs(aug_params, split='training')
+    
+    if args.stage == 'autoflow':
+        aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
+        train_dataset = AutoFlow(aug_params, split='train')
+    
+    if args.stage == 'autoflow_cross':
+        aug_params = {'crop_size': args.image_size, 'min_scale': -0.1, 'max_scale': 1.0, 'do_flip': True}
+        train_dataset = AutoFlow(aug_params, split='subtrain')
     
     elif args.stage == 'things':
         aug_params = {'crop_size': args.image_size, 'min_scale': -0.4, 'max_scale': 0.8, 'do_flip': True}
@@ -257,3 +296,53 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     print('Training with %d image pairs' % len(train_dataset))
     return train_loader
 
+
+if __name__ == "__main__":
+    # grab args [image_size], [dataset_root]
+    import argparse
+    parser = argparse.ArgumentParser()
+    #parser.add_argument('--dataset_root', default='./datasets/YoutubeVOS2018/')
+    parser.add_argument('--image_size', default=[368, 512])
+    parser.add_argument('--stage', default='autoflow')
+    parser.add_argument('--batch_size', type=int, default=6)
+    args = parser.parse_args()
+    print(args)
+
+    # make dataloader
+    #import time
+    #start = time.time()
+    #dataloader = fetch_dataloader(args)
+    #end = time.time()
+    #print(end - start)
+    #img1, img2, flow, valid = dataloader.dataset[0]
+    # AutoFlow: [3, 368, 512], [3, 368, 512], [2, 368, 512], [368, 512]
+
+    autoflow_trainfull = AutoFlow(split='train')
+    print(len(autoflow_trainfull))
+    autoflow_subtrain = AutoFlow(split='subtrain')
+    print(len(autoflow_subtrain))
+    autoflow_subval = AutoFlow(split='subval')
+    print(len(autoflow_subval))
+    exit()
+    from tqdm.auto import tqdm
+    import csv
+    autoflow = AutoFlow()
+    lines_to_save = []
+    max_H = 0
+    max_W = 0
+    #img1, img2, flow, valid = autoflow[0]
+    for id in tqdm(range(40000)):
+        img1, img2, flow, valid = autoflow[0]
+        H, W = img1.shape[1], img1.shape[2]
+        lines_to_save.append([H, W])
+        max_H = max(max_H, H)
+        max_W = max(max_W, W)
+    print(f"maximum height: {max_H}, maximum width: {max_W}")
+    stat_path = 'AutoFlow_sizes.csv'
+    with open(stat_path, 'a+', newline="") as fp:
+        writer = csv.writer(fp)
+        writer.writerows(lines_to_save)
+    
+    # AutoFlow: [3, 448, 572], [3, 448, 572], [2, 448, 572], [448, 572]
+
+    print()

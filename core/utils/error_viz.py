@@ -38,6 +38,7 @@ def visualize_error_map(epe, valid=None, epe_max=48, cmap='bwr'):
 def compare_flow_viz(
     out_flow_uv,
     gt_flow_uv,
+    valid_mask=None,
     clip_flow=None,
     convert_to_bgr=False
 ):
@@ -61,6 +62,8 @@ def compare_flow_viz(
     assert gt_flow_uv.ndim == 3, 'input GT flow must have three dimensions'
     assert gt_flow_uv.shape[2] == 2, 'input GT flow must have shape [H,W,2]'
 
+    if valid_mask is not None:
+        gt_flow_uv[~valid_mask] = 0
     if clip_flow is not None:
         out_flow_uv = np.clip(out_flow_uv, 0, clip_flow)
         gt_flow_uv = np.clip(gt_flow_uv, 0, clip_flow)
@@ -81,5 +84,7 @@ def compare_flow_viz(
 
     out_flow_viz = flow_uv_to_colors(out_u, out_v, convert_to_bgr)
     gt_flow_viz = flow_uv_to_colors(gt_u, gt_v, convert_to_bgr)
+    if valid_mask is not None:
+        gt_flow_viz[~valid_mask] = 0
 
     return out_flow_viz, gt_flow_viz

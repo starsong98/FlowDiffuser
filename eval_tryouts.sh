@@ -40,9 +40,9 @@
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=chairs --output_path="results/modelzoo-T/run9"
 
 # Things runs
-CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run0"
-CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run1"
-CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run2"
+#CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run0"
+#CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run1"
+#CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run2"
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run3"
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run4"
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset=things --output_path="results/modelzoo-T/FT_2/run5"
@@ -55,3 +55,6 @@ CUDA_VISIBLE_DEVICES=1 python evaluate.py --model=checkpoints/FlowDiffuser-thing
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset="chairs-train" --output_path="results/modelzoo-T"
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset="fcdn-val" --output_path="results/modelzoo-T"
 #python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset="fcdn-train" --output_path="results/modelzoo-T"
+
+# AutoFlow runs
+CUDA_VISIBLE_DEVICES=0 python evaluate.py --model=checkpoints/FlowDiffuser-things.pth  --dataset="autoflow-subval" --output_path="results/modelzoo-T-debug4a"
