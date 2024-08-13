@@ -79,7 +79,8 @@ class Logger:
         self.scheduler = scheduler
         self.total_steps = 0
         self.running_loss = {}
-        self.writer = None
+        #self.writer = None
+        self.writer = SummaryWriter()
 
     def _print_training_status(self):
         metrics_data = [self.running_loss[k]/SUM_FREQ for k in sorted(self.running_loss.keys())]
@@ -142,7 +143,9 @@ def train(args):
     logger = Logger(model, scheduler)
 
     #VAL_FREQ = 5000
-    VAL_FREQ = 100
+    #VAL_FREQ = 100
+    #VAL_FREQ = 10
+    VAL_FREQ = args.val_freq
     add_noise = True
 
     should_keep_training = True
@@ -166,7 +169,18 @@ def train(args):
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)                
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-                
+                # gradient NaN handling
+                if torch.isnan(loss).any():
+                    print(f"NaN detected in loss, iteration # {total_steps}")
+                nans_detected = False
+                for name, param in model.module.named_parameters():
+                    if param.grad is not None and torch.isnan(param.grad).any():
+                        param.grad = torch.zeros_like(param.grad)
+                        logger.writer.add_text('NaN Gradients', f'Iteration {total_steps}: {name}', total_steps)
+                        nans_detected = True
+                if nans_detected:
+                    print(f'NaNs detected in gradients, iteration # {total_steps} - zeroing out all affected gradients')
+
                 scaler.step(optimizer)
                 scheduler.step()
                 scaler.update()
@@ -228,6 +242,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--gamma', type=float, default=0.8, help='exponential weighting')
     parser.add_argument('--add_noise', action='store_true')
+    parser.add_argument('--val_freq', default=5000, type=int, help="no. of steps before validation")
     args = parser.parse_args()
 
     torch.manual_seed(1234)

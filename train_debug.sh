@@ -9,9 +9,6 @@
 #CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel --stage sintel --validation sintel \
 #--restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 \
 #--num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 768 --wdecay 0.00001 --gamma=0.85 --mixed_precision
-#CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel2 --stage sintel --validation sintel kitti \
-#--restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 \
-#--num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 952 --wdecay 0.00001 --gamma=0.85 --mixed_precision
-CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel-3a --stage sintel --validation sintel kitti \
+CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel2 --stage sintel --validation sintel kitti \
 --restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 \
---num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 768 --wdecay 0.00001 --gamma=0.85 --mixed_precision
+--num_steps 20 --batch_size 4 --lr 0.000175 --image_size 368 952 --wdecay 0.00001 --gamma=0.85 --mixed_precision

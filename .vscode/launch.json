@@ -41,7 +41,7 @@
             ]
         }
         */
-        /*
+        
         {
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
@@ -54,7 +54,7 @@
                 "--validation", "sintel", "kitti",
                 "--restore_ckpt", "checkpoints/FlowDiffuser-things.pth",
                 "--gpus", "0", "1",
-                "--num_steps", "540000",
+                "--num_steps", "500",
                 "--batch_size", "2",
                 "--lr", "0.000175",
                 "--image_size", "432", "960",
@@ -66,7 +66,7 @@
                 "CUDA_VISIBLE_DEVICES": "4,5"
             }
         }
-        */
+        
         /*{
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
