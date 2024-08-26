@@ -123,7 +123,12 @@ class Logger:
 
 def train(args):
 
-    model = nn.DataParallel(FlowDiffuser(args), device_ids=args.gpus)
+    #model = nn.DataParallel(FlowDiffuser(args), device_ids=args.gpus)
+    if args.model_type == 'flowdiffuser':
+        model = nn.DataParallel(FlowDiffuser(args), device_ids=args.gpus)   # vanilla FlowDiffuser
+    elif args.model_type == 'flowdiffuser_nocascade':
+        from flowdiffuser_nocascade import FlowDiffuser_NoCascade
+        model = nn.DataParallel(FlowDiffuser_NoCascade(args), device_ids=args.gpus)   # FlowDiffuser w/o cascade refinement @ 1/4 scale
     print("Parameter Count: %d" % count_parameters(model))
 
     if args.restore_ckpt is not None:
@@ -245,6 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', type=float, default=0.8, help='exponential weighting')
     parser.add_argument('--add_noise', action='store_true')
     parser.add_argument('--val_freq', default=5000, type=int, help="no. of steps before validation")
+    parser.add_argument('--model_type', default='flowdiffuser', type=str, help="type of model architecture")
     args = parser.parse_args()
 
     torch.manual_seed(1234)
