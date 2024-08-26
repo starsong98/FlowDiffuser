@@ -95,22 +95,26 @@ def validate_chairs(model, iters=24, output_path=None, split='validation'):
     if split == 'validation':
         val_dataset = datasets.FlyingChairs(split='validation')
         out_filename = "FlyingChairs-val-stats.csv"
-        out_vis_dir = os.path.join(output_path, 'chairs-validation')
+        if output_path is not None:
+            out_vis_dir = os.path.join(output_path, 'chairs-validation')
         print("Validation on FlyingChairs validation split")
     elif split == 'training':
         val_dataset = datasets.FlyingChairs(split='training')
         out_filename = "FlyingChairs-train-stats.csv"
-        out_vis_dir = os.path.join(output_path, 'chairs-training')
+        if output_path is not None:
+            out_vis_dir = os.path.join(output_path, 'chairs-training')
         print("Validation on FlyingChairs training split")
     elif split == 'fcdn-val':
         val_dataset = datasets.FlyingChairs(split='validation', root='datasets/FCDN/data')
         out_filename = "FCDN-val-stats.csv"
-        out_vis_dir = os.path.join(output_path, 'fcdn-validation')
+        if output_path is not None:
+            out_vis_dir = os.path.join(output_path, 'fcdn-validation')
         print("Validation on FCDN validation split")
     elif split == 'fcdn-train':
         val_dataset = datasets.FlyingChairs(split='training', root='datasets/FCDN/data')
         out_filename = "FCDN-train-stats.csv"
-        out_vis_dir = os.path.join(output_path, 'fcdn-training')
+        if output_path is not None:
+            out_vis_dir = os.path.join(output_path, 'fcdn-training')
         print("Validation on FCDN training split")
     else:
         raise ValueError("split type not implemented")

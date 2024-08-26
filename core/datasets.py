@@ -281,7 +281,8 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
         if TRAIN_DS == 'C+T+K+S+H':
             kitti = KITTI({'crop_size': args.image_size, 'min_scale': -0.3, 'max_scale': 0.5, 'do_flip': True})
             hd1k = HD1K({'crop_size': args.image_size, 'min_scale': -0.5, 'max_scale': 0.2, 'do_flip': True})
-            train_dataset = 100*sintel_clean + 100*sintel_final + 200*kitti + 5*hd1k + things
+            #train_dataset = 100*sintel_clean + 100*sintel_final + 200*kitti + 5*hd1k + things
+            train_dataset = 20*sintel_clean + 20*sintel_final + 40*kitti + hd1k
 
         elif TRAIN_DS == 'C+T+K/S':
             train_dataset = 100*sintel_clean + 100*sintel_final + things

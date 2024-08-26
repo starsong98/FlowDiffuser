@@ -44,7 +44,10 @@ def sequence_loss(flow_preds, flow_gt, valid, gamma=0.8, max_flow=MAX_FLOW):
     for i in range(n_predictions):
         i_weight = gamma**(n_predictions - i - 1)
         i_loss = (flow_preds[i] - flow_gt).abs()
-        flow_loss += i_weight * (valid[:, None] * i_loss).mean()
+        #flow_loss += i_weight * (valid[:, None] * i_loss).mean()
+        # better handling? based off SEA-RAFT
+        final_mask = (~torch.isnan(i_loss.detach())) & (~torch.isinf(i_loss.detach())) & valid[:, None]
+        flow_loss += i_weight * (final_mask * i_loss).sum() / final_mask.sum()
 
     epe = torch.sum((flow_preds[-1] - flow_gt)**2, dim=1).sqrt()
     epe = epe.view(-1)[valid.view(-1)]
@@ -175,7 +178,8 @@ def train(args):
                 nans_detected = False
                 for name, param in model.module.named_parameters():
                     if param.grad is not None and torch.isnan(param.grad).any():
-                        param.grad = torch.zeros_like(param.grad)
+                        #param.grad = torch.zeros_like(param.grad)
+                        param.grad[torch.isnan(param.grad)] = 0.0
                         logger.writer.add_text('NaN Gradients', f'Iteration {total_steps}: {name}', total_steps)
                         nans_detected = True
                 if nans_detected:
@@ -191,19 +195,19 @@ def train(args):
                     PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
                     torch.save(model.state_dict(), PATH)
 
-                results = {}
-                for val_dataset in args.validation:
-                    if val_dataset == 'chairs':
-                        results.update(evaluate.validate_chairs(model.module))
-                    elif val_dataset == 'sintel':
-                        results.update(evaluate.validate_sintel(model.module))
-                    elif val_dataset == 'kitti':
-                        results.update(evaluate.validate_kitti(model.module))
-                    elif val_dataset == 'autoflow':
-                        results.update(evaluate.validate_autoflow(model.module, split='subval'))
+                    results = {}
+                    for val_dataset in args.validation:
+                        if val_dataset == 'chairs':
+                            results.update(evaluate.validate_chairs(model.module))
+                        elif val_dataset == 'sintel':
+                            results.update(evaluate.validate_sintel(model.module))
+                        elif val_dataset == 'kitti':
+                            results.update(evaluate.validate_kitti(model.module))
+                        elif val_dataset == 'autoflow':
+                            results.update(evaluate.validate_autoflow(model.module, split='subval'))
 
-                    logger.write_dict(results)
-                    
+                        logger.write_dict(results)
+                        
                     model.train()
                     if args.stage != 'chairs':
                         model.module.freeze_bn()
