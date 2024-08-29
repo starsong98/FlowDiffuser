@@ -1,3 +1,7 @@
+"""
+Each Conditiona-RDD consists of 1 iterative refinement only
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -47,7 +51,7 @@ def ste_round(x):
     return torch.round(x) - x.detach() + x
 
 
-class FlowDiffuser_NoCascade(nn.Module):
+class FlowDiffuser_NoCascade_Single(nn.Module):
     def __init__(self, args):
         super().__init__()
         print('\n ---------- model: FlowDiffuser w/o Cascade Refinement Stage ---------- \n')
@@ -81,8 +85,10 @@ class FlowDiffuser_NoCascade(nn.Module):
             self.update_dfm = SKUpdateDFM(self.args, hidden_dim=c_dim)
 
             timesteps = 1000
-            sampling_timesteps = 4
-            recurr_itrs = 6
+            #sampling_timesteps = 4
+            #recurr_itrs = 6
+            sampling_timesteps = 24
+            recurr_itrs = 1
             print(' -- denoise steps: %d \n' % sampling_timesteps)
             print(' -- recurrent iterations: %d \n' % recurr_itrs)
 

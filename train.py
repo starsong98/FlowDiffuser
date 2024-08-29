@@ -68,6 +68,13 @@ def count_parameters(model):
 
 def fetch_optimizer(args, model):
     """ Create the optimizer and learning rate scheduler """
+    # epsilon foolproofing for mixed precision training
+    if args.mixed_precision and args.epsilon < 1e-7:
+        temp_epsilon = args.epsilon
+        while args.epsilon < 1e-7:
+            args.epsilon = args.epsilon * 1000
+        print(f'Optimizer epsilon value {temp_epsilon} deemed too small for mixed precision - increased to {args.epsilon}')
+    
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wdecay, eps=args.epsilon)
 
     scheduler = optim.lr_scheduler.OneCycleLR(optimizer, args.lr, args.num_steps+100,
@@ -132,6 +139,11 @@ def train(args):
     elif args.model_type == 'flowdiffuser_nocascade':
         from flowdiffuser_nocascade import FlowDiffuser_NoCascade
         model = nn.DataParallel(FlowDiffuser_NoCascade(args), device_ids=args.gpus)   # FlowDiffuser w/o cascade refinement @ 1/4 scale
+    elif args.model_type == 'flowdiffuser_nocascade_single':
+        from flowdiffuser_nocascade_single import FlowDiffuser_NoCascade_Single
+        model = nn.DataParallel(FlowDiffuser_NoCascade_Single(args), device_ids=args.gpus)   # FlowDiffuser w/o cascade refinement @ 1/4 scale
+    else:
+        raise NameError("Available model types: \{flowdiffuser (default), flowdiffuser_nocascade\}")
     print("Parameter Count: %d" % count_parameters(model))
 
     if args.restore_ckpt is not None:
@@ -255,6 +267,7 @@ if __name__ == '__main__':
     parser.add_argument('--add_noise', action='store_true')
     parser.add_argument('--val_freq', default=5000, type=int, help="no. of steps before validation")
     parser.add_argument('--model_type', default='flowdiffuser', type=str, help="type of model architecture")
+    parser.add_argument('--sampling_timesteps', type=int, default=4, help="no. of denoising steps during inference")
     args = parser.parse_args()
 
     torch.manual_seed(1234)

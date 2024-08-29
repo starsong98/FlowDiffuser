@@ -450,7 +450,7 @@ def validate_things(model, iters=32, output_path=None):
             if not os.path.isdir(output_path):
                 os.makedirs(output_path)
 
-        len_val = len(val_dataset) if output_path is not None else 1000
+        len_val = len(val_dataset) if output_path is not None else 800
         #for val_id in tqdm(range(len(val_dataset)), desc=f"Validation on FT3D-TEST-{dstype}:"):
         for val_id in tqdm(range(len_val), desc=f"Validation on FT3D-TEST-{dstype}:"):
             image1, image2, flow_gt, valid_gt = val_dataset[val_id]
