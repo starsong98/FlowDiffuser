@@ -12,7 +12,7 @@ from fd_corr import CorrBlock_FD_Sp4
 
 autocast = torch.cuda.amp.autocast
 
-
+# This version seeks to freely adjust the number of iterative refinements in each denoising step, as well as the total number of denoising steps.
 def exists(x):
     return x is not None
 
@@ -47,16 +47,16 @@ def ste_round(x):
     return torch.round(x) - x.detach() + x
 
 
-class FlowDiffuser_NoCascade(nn.Module):
+class FlowDiffuser_Sp8Cascade_Adjustable(nn.Module):
     def __init__(self, args):
         super().__init__()
-        print('\n ---------- model: FlowDiffuser w/o Cascade Refinement Stage ---------- \n')
+        print('\n ---------- model: FlowDiffuser w 1/8 scale Cascade Refinement Stage, flexible iters ver. ---------- \n')
 
         args.corr_levels = 4
         args.corr_radius = 4
         args.m_dim = 256
         args.c_dim = c_dim = 128
-        args.iters_const6 = 6 
+        #args.iters_const6 = 6 
         
         self.args = args
         self.args.UpdateBlock = 'SKUpdateBlock6_Deep_nopoolres_AllDecoder'
@@ -81,13 +81,19 @@ class FlowDiffuser_NoCascade(nn.Module):
             self.update_dfm = SKUpdateDFM(self.args, hidden_dim=c_dim)
 
             timesteps = 1000
-            sampling_timesteps = 4
-            recurr_itrs = 6
-            print(' -- denoise steps: %d \n' % sampling_timesteps)
-            print(' -- recurrent iterations: %d \n' % recurr_itrs)
+            #sampling_timesteps = 4
+            #recurr_itrs = 6
+            #recurr_itrs = args.iters
+            #print(' -- denoise steps: %d \n' % sampling_timesteps)
+            #print(' -- recurrent iterations: %d \n' % recurr_itrs)
 
-            self.ddim_n = sampling_timesteps
-            self.recurr_itrs = recurr_itrs
+            #self.ddim_n = sampling_timesteps
+            #self.recurr_itrs = recurr_itrs
+            self.ddim_n = args.sampling_timesteps
+            self.recurr_itrs = args.iters
+            print(' -- denoise steps: %d \n' % self.ddim_n)
+            print(' -- recurrent iterations (conditional-rdd): %d \n' % self.recurr_itrs)
+            print(' -- recurrent iterations (cascade refinement): %d \n' % self.args.iters_cascade)
             self.n_sc = 0.1
             self.scale = nn.Parameter(torch.ones(1) * 0.5, requires_grad=False)
             self.n_lambda = 0.2
@@ -100,9 +106,9 @@ class FlowDiffuser_NoCascade(nn.Module):
             timesteps, = betas.shape
             self.num_timesteps = int(timesteps)
 
-            self.sampling_timesteps = default(sampling_timesteps, timesteps)
-            assert self.sampling_timesteps <= timesteps
-            self.is_ddim_sampling = self.sampling_timesteps < timesteps
+            #self.sampling_timesteps = default(self.sampling_timesteps, timesteps)
+            #assert self.sampling_timesteps <= timesteps
+            self.is_ddim_sampling = self.ddim_n < timesteps
             self.ddim_sampling_eta = 1.
             self.self_condition = False
 
@@ -177,7 +183,7 @@ class FlowDiffuser_NoCascade(nn.Module):
         flow_gt_sp8 = F.interpolate(flow_gt, (h, w), mode='bilinear', align_corners=True) / 8. 
 
         x_t, noises, t = self._prepare_targets(flow_gt_sp8) 
-        x_t = x_t * self.norm_const # this is normal; division had been done in _prepare_targets.
+        x_t = x_t * self.norm_const
         coords1 = coords1 + x_t.float()
 
         flow_up_s = []
@@ -236,7 +242,8 @@ class FlowDiffuser_NoCascade(nn.Module):
         """
         batch, c, h, w = feat_shape
         shape = (batch, 2, h, w)
-        total_timesteps, sampling_timesteps, eta, objective = self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective  
+        #total_timesteps, sampling_timesteps, eta, objective = self.num_timesteps, self.sampling_timesteps, self.ddim_sampling_eta, self.objective  
+        total_timesteps, sampling_timesteps, eta, objective = self.num_timesteps, self.ddim_n, self.ddim_sampling_eta, self.objective  
         times = torch.linspace(-1, total_timesteps - 1, steps=sampling_timesteps + 1)
         times = list(reversed(times.int().tolist()))
         time_pairs = list(zip(times[:-1], times[1:])) 
@@ -359,6 +366,19 @@ class FlowDiffuser_NoCascade(nn.Module):
             else: 
                 coords1, net, flow_up_s = self._ddim_sample(fmap1_8.shape, net, inp8, coords0, coords1)
 
+            # 1/8 scale cascade refinement. I guess this is the subnet or something.
+            for iter in range(self.args.iters_cascade):
+                coords1 = coords1.detach()
+                
+                corr = self.corr_fn(coords1)
+                flow = coords1 - coords0
+                with autocast(enabled=self.args.mixed_precision):
+                    net, delta_flow = self.update(net, inp8, corr, flow, iter, sp4=True)
+                    up_mask = self.um8(net)
+                
+                coords1 = coords1 + delta_flow
+                flow_up = self.up_sample_flow8(coords1 - coords0, up_mask)
+                flow_up_s.append(flow_up)
             """
             if self.sp4:
                 flow4 = torch.nn.functional.interpolate(2 * (coords1 - coords0), scale_factor=2, mode='bilinear', align_corners=True)

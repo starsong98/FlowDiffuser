@@ -24,11 +24,11 @@
                 "CUDA_VISIBLE_DEVICES": "1"
             }
         },
-        /*{
-            "name": "Python Debugger: Current File with Arguments",
+        {
+            "name": "Architecture slicing",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/slice_architecture.py",
+            "program": "${workspaceFolder}/slice_architecture_2.py",
             "console": "integratedTerminal",
             "args": [
                 "--model", "checkpoints/FlowDiffuser-things.pth",
@@ -38,11 +38,13 @@
                 //"--dataset", "sintel",
                 //"--dataset", "things",
                 //"--output_path", "results/modelzoo-T"
-                "--output_path", "results/modelzoo-T-debug"
-            ]
-        }
-        */
-        
+                "--output_path", "results/modelzoo-T-debug",
+                "--iters", "12",
+            ],
+            "env":{
+                "CUDA_VISIBLE_DEVICES": "4"
+            },
+        },
         {
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
@@ -66,8 +68,36 @@
             "env": {
                 "CUDA_VISIBLE_DEVICES": "4,5"
             }
-        }
-        
+        },
+        {
+            "name": "Gradient Accumulation Debugging",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_gradacc.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--name", "fd-debug-gradaccum",
+                "--stage", "chairs",
+                "--validation", "chairs",
+                //"--gpus", "0", "1",
+                "--gpus", "0",
+                "--num_steps", "500",
+                "--val_freq", "250",
+                //"--batch_size", "3",
+                "--batch_size", "6",
+                "--effective_batch_size", "12",
+                "--lr", "0.00045",
+                "--image_size", "368", "496",
+                "--wdecay", "0.00001",
+                "--gamma", "0.85",
+                "--iters", "12",
+                "--sampling_timesteps", "4",
+                "--model_type", "flowdiffuser_nocascade_adjustable"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "4"
+            }
+        },
         /*{
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
@@ -92,5 +122,59 @@
                 "CUDA_VISIBLE_DEVICES": "4,5"
             }
         }*/
+        {
+            "name": "Architecture slicing - 1/8 scale cascade refinement (subnet?)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/slice_architecture_2.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model", "checkpoints/FlowDiffuser-things.pth",
+                //"--dataset", "kitti-submission",
+                "--dataset", "kitti",
+                //"--dataset", "chairs",
+                //"--dataset", "sintel",
+                //"--dataset", "things",
+                //"--output_path", "results/modelzoo-T"
+                "--output_path", "results/modelzoo-T-debug",
+                "--iters", "6",
+                "--iters_cascade", "6",
+            ],
+            "env":{
+                "CUDA_VISIBLE_DEVICES": "5"
+            },
+        },
+        {
+            "name": "Gradient Accumulation Debugging - sp8 cascade refinement",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_gradacc.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--name", "fd-debug-gradaccum",
+                "--stage", "chairs",
+                "--validation", "chairs",
+                //"--gpus", "0", "1",
+                "--gpus", "0",
+                "--num_steps", "500",
+                "--val_freq", "250",
+                //"--batch_size", "3",
+                "--batch_size", "6",
+                //"--batch_size", "4",
+                "--effective_batch_size", "12",
+                "--lr", "0.00045",
+                "--image_size", "368", "496",
+                "--wdecay", "0.00001",
+                "--gamma", "0.85",
+                "--iters", "6",
+                "--iters_cascade", "6",
+                "--sampling_timesteps", "4",
+                //"--model_type", "flowdiffuser_nocascade_adjustable"
+                "--model_type", "flowdiffuser_sp8cascade_adjustable",
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "5"
+            }
+        },
     ]
 }

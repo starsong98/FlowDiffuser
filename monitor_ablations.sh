@@ -1,0 +1,1 @@
+tensorboard --logdir_spec="6iter_nocascade":"runs/Aug26_17-18-38_gpusystem","12iter_nocascade":"runs/Oct02_17-05-56_gpusystem","6iter_sp8cascade_6iter":"runs/Oct04_17-46-15_gpusystem" --port 9000
