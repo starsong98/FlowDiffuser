@@ -20,5 +20,9 @@
 # mixed precision seems to cause NaNs though. maybe that was the issue all along...
 
 # tryouts on server 177
-CUDA_VISIBLE_DEVICES=0,1  python -u train.py --name fdnocascadesingle-chairs-ampdebug --stage chairs --validation chairs --gpus 0 1 \
---num_steps 5000 --batch_size 12 --lr 0.00045 --image_size 368 496 --wdecay 0.0001 --val_freq 5000 --mixed_precision --model_type flowdiffuser_nocascade_single --epsilon 1e-5
+#CUDA_VISIBLE_DEVICES=0,1  python -u train.py --name fdnocascadesingle-chairs-ampdebug --stage chairs --validation chairs --gpus 0 1 \
+#--num_steps 5000 --batch_size 12 --lr 0.00045 --image_size 368 496 --wdecay 0.0001 --val_freq 5000 --mixed_precision --model_type flowdiffuser_nocascade_single --epsilon 1e-5
+# increased optimizer epsilon value, yet mixed precision training still causes NaN issues.
+
+CUDA_VISIBLE_DEVICES=0,1  python -u train.py --name fdnocascadesingle-chairs --stage chairs --validation chairs --gpus 0 1 \
+--num_steps 5000 --batch_size 12 --lr 0.00045 --image_size 368 496 --wdecay 0.0001 --val_freq 5000 --model_type flowdiffuser_nocascade_single --epsilon 1e-7
