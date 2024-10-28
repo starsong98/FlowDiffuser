@@ -32,6 +32,16 @@
 # run 5a - remove mixed precision and try again
 # reference command: CUDA_VISIBLE_DEVICES=0,1,2,3,4,5  python -u train.py --name fd-sintel --stage sintel --validation sintel \
 # --restore_ckpt checkpoints/fd-things.pth --gpus 0 1 2 3 4 5 --num_steps 180000 --batch_size 6 --lr 0.000175 --image_size 432 960 --wdecay 0.00001 --gamma=0.85
-CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel-5a --stage sintel --validation sintel kitti \
---restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 \
+#CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel-5a --stage sintel --validation sintel kitti \
+#--restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 \
+#--num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 768 --wdecay 0.00001 --gamma=0.85 --val_freq 5000
+
+# run 5b - mixed precision & resumable saving
+#CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel-5b --stage sintel --validation sintel kitti \
+#--restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 --mixed_precision --epsilon 1e-5 \
+#--num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 768 --wdecay 0.00001 --gamma=0.85 --val_freq 5000
+
+# run 5c - removed mixed precision, yes resumable saving
+CUDA_VISIBLE_DEVICES=4,5  python -u train.py --name fd-aft-sintel-5c --stage sintel --validation sintel kitti \
+--restore_ckpt checkpoints/FlowDiffuser-things.pth --gpus 0 1 --epsilon 1e-7 \
 --num_steps 270000 --batch_size 4 --lr 0.000175 --image_size 368 768 --wdecay 0.00001 --gamma=0.85 --val_freq 5000

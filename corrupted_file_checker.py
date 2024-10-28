@@ -46,7 +46,6 @@ for val_id in tqdm(range(len(val_dataset))):
     if nan_count > 0:
         print(f"NaN count on val id {val_id}: {nan_count}")
     lines_to_save.append([filename0, image0.shape, filename1, image1.shape, flowname, flow_gt.shape, nan_count])
-        
 
 
 with open(out_filename, 'a+', newline="") as fp:

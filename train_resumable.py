@@ -28,7 +28,7 @@ from torch.cuda.amp import GradScaler
 # exclude extremly large displacements
 MAX_FLOW = 400
 SUM_FREQ = 100
-VAL_FREQ = 5000
+#VAL_FREQ = 5000
 
 
 def sequence_loss(flow_preds, flow_gt, valid, gamma=0.8, max_flow=MAX_FLOW):
@@ -131,23 +131,43 @@ class Logger:
         self.writer.close()
 
 
+# train using gradient accumulation
 def train(args):
+    assert args.effective_batch_size % args.batch_size == 0
+
+    accumulation_steps = args.effective_batch_size // args.batch_size
+    args.num_steps = args.num_steps * accumulation_steps
+    print(f'Using gradient accumulation; Batch size {args.batch_size}, Effective batch size {args.effective_batch_size}')
 
     #model = nn.DataParallel(FlowDiffuser(args), device_ids=args.gpus)
+    print(f'Model type selected: {args.model_type}')
     if args.model_type == 'flowdiffuser':
         model = nn.DataParallel(FlowDiffuser(args), device_ids=args.gpus)   # vanilla FlowDiffuser
     elif args.model_type == 'flowdiffuser_nocascade':
-        from flowdiffuser_nocascade import FlowDiffuser_NoCascade
+        from core.flowdiffuser_nocascade import FlowDiffuser_NoCascade
         model = nn.DataParallel(FlowDiffuser_NoCascade(args), device_ids=args.gpus)   # FlowDiffuser w/o cascade refinement @ 1/4 scale
     elif args.model_type == 'flowdiffuser_nocascade_single':
-        from flowdiffuser_nocascade_single import FlowDiffuser_NoCascade_Single
+        from core.flowdiffuser_nocascade_single import FlowDiffuser_NoCascade_Single
         model = nn.DataParallel(FlowDiffuser_NoCascade_Single(args), device_ids=args.gpus)   # FlowDiffuser w/o cascade refinement @ 1/4 scale
-    else:
-        raise NameError("Available model types: \{flowdiffuser (default), flowdiffuser_nocascade\}")
+    elif args.model_type == 'flowdiffuser_nocascade_adjustable':
+        from core.flowdiffuser_nocascade_adjustable import FlowDiffuser_NoCascade_Adjustable
+        model = nn.DataParallel(FlowDiffuser_NoCascade_Adjustable(args), device_ids=args.gpus)
+    elif args.model_type == 'flowdiffuser_sp8cascade_adjustable':
+        from core.flowdiffuser_sp8cascade_adjustable import FlowDiffuser_Sp8Cascade_Adjustable
+        model = nn.DataParallel(FlowDiffuser_Sp8Cascade_Adjustable(args))
+    #else:
+    #    raise ValueError("Available model types: \{flowdiffuser (default), flowdiffuser_nocascade, flowdiffuser_nocascade_single, flowdiffuser_nocascade_adjustable, flowdiffuser_sp8cascade_adjustable\}")
     print("Parameter Count: %d" % count_parameters(model))
 
     if args.restore_ckpt is not None:
-        model.load_state_dict(torch.load(args.restore_ckpt), strict=False)
+        if args.resume_training:
+            checkpoint = torch.load(args.restore_ckpt)
+            #model.load_state_dict(checkpoint['model_state_dict'])
+            model.module.load_state_dict(checkpoint['model_state_dict'])
+            print(f'Model weights loaded from {args.restore_ckpt}\nWill resume training')
+        else:
+            model.load_state_dict(torch.load(args.restore_ckpt), strict=False)
+            print(f'Model weights loaded from {args.restore_ckpt}\nNot resuming training states')
 
     model.cuda()
     model.train()
@@ -159,23 +179,45 @@ def train(args):
     optimizer, scheduler = fetch_optimizer(args, model)
 
     total_steps = 0
+    epoch = 0
     scaler = GradScaler(enabled=args.mixed_precision)
     logger = Logger(model, scheduler)
+
+    if args.resume_training:
+        #loss = checkpoint['loss']
+        #print(f"training loss restored from {args.restore_ckpt}; {loss}")
+        total_steps = checkpoint['step']
+        print(f"resuming from step {total_steps}")
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        print(f"restore optimizer state from {args.restore_ckpt}")
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        print(f"restore scheduler state from {args.restore_ckpt}")
+        epoch = checkpoint['epoch']
+        print(f"resuming from epoch {epoch}")
 
     #VAL_FREQ = 5000
     #VAL_FREQ = 100
     #VAL_FREQ = 10
-    VAL_FREQ = args.val_freq
+    #VAL_FREQ = args.val_freq
+    VAL_FREQ = args.val_freq * accumulation_steps
+    SUM_FREQ = 100 * accumulation_steps
     add_noise = True
 
     should_keep_training = True
 
+    #accumulated_steps = 0
+
     with tqdm(total=args.num_steps) as progress_bar:
-
+        # initial value setup
+        progress_bar.n = total_steps
+        progress_bar.last_print_n = total_steps
+        progress_bar.update(0)
         while should_keep_training:
-
+            # shuffle sampler
+            #train_loader.sampler.set_epoch(epoch)
+            epoch = epoch + 1
             for i_batch, data_blob in enumerate(train_loader):
-                optimizer.zero_grad()
+                #optimizer.zero_grad()
                 image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
                 if args.add_noise:
@@ -185,10 +227,11 @@ def train(args):
 
                 flow_predictions = model(image1, image2, iters=args.iters, flow_gt=flow)            
 
-                loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)                
-                torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+                loss, metrics = sequence_loss(flow_predictions, flow, valid, args.gamma)    # metrics is actually somewhat inaccurate, but the overall trend should be same so whatever.
+                loss = loss / accumulation_steps    # normalize the loss because it is averaged
+                scaler.scale(loss).backward()       # backprop
+                scaler.unscale_(optimizer)
+                #torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
                 # gradient NaN handling
                 if torch.isnan(loss).any():
                     print(f"NaN detected in loss, iteration # {total_steps}")
@@ -201,47 +244,71 @@ def train(args):
                         nans_detected = True
                 if nans_detected:
                     print(f'NaNs detected in gradients, iteration # {total_steps} - zeroing out all affected gradients')
-
-                scaler.step(optimizer)
-                scheduler.step()
-                scaler.update()
-
-                logger.push(metrics)
-
-                if total_steps % VAL_FREQ == VAL_FREQ - 1:
-                    PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
-                    #torch.save(model.state_dict(), PATH)
-                    checkpoint = {
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "scaler": scaler.state_dict()
-                    }
-                    torch.save(checkpoint, PATH)
-
-                    results = {}
-                    for val_dataset in args.validation:
-                        if val_dataset == 'chairs':
-                            results.update(evaluate.validate_chairs(model.module))
-                        elif val_dataset == 'sintel':
-                            results.update(evaluate.validate_sintel(model.module))
-                        elif val_dataset == 'kitti':
-                            results.update(evaluate.validate_kitti(model.module))
-                        elif val_dataset == 'autoflow':
-                            results.update(evaluate.validate_autoflow(model.module, split='subval'))
-
-                        logger.write_dict(results)
-                        
-                    model.train()
-                    if args.stage != 'chairs':
-                        model.module.freeze_bn()
                 
+                logger.push(metrics)
                 total_steps += 1
                 progress_bar.update()
 
-                if total_steps > args.num_steps:
-                    should_keep_training = False
-                    break
+                #accumulated_steps += 1
 
+                #if accumulated_steps >= accumulation_steps:
+                if total_steps % accumulation_steps == 0:
+
+                    # actual model weight update
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)   # this might have to be done once here
+                    scaler.step(optimizer)
+                    scheduler.step()
+                    scaler.update()
+                    optimizer.zero_grad()   # zero grad should only be called after each weight update, rather than each minibatch
+
+                    #logger.push(metrics)
+
+                    #if total_steps % VAL_FREQ == VAL_FREQ - 1:
+                    if total_steps % VAL_FREQ == 0:
+                        os.makedirs('checkpoints/%s' % args.name, exist_ok=True)
+                        #PATH = 'checkpoints/%d_%s.pth' % (total_steps+1, args.name)
+                        
+                        PATH2 = 'checkpoints/%s/%d_%s.pth' % (args.name, total_steps//accumulation_steps, args.name)
+                        torch.save(model.state_dict(), PATH2)
+
+                        results = {}
+                        for val_dataset in args.validation:
+                            if val_dataset == 'chairs':
+                                results.update(evaluate.validate_chairs(model.module))
+                            elif val_dataset == 'sintel':
+                                results.update(evaluate.validate_sintel(model.module))
+                            elif val_dataset == 'kitti':
+                                results.update(evaluate.validate_kitti(model.module))
+                            elif val_dataset == 'autoflow':
+                                results.update(evaluate.validate_autoflow(model.module, split='subval'))
+
+                            logger.write_dict(results)
+                            
+                        model.train()
+                        if args.stage != 'chairs':
+                            model.module.freeze_bn()
+                    
+                    #total_steps += 1
+                    #progress_bar.update()
+                    #accumulated_steps = 0
+
+                    if total_steps > args.num_steps:
+                        should_keep_training = False
+                        break
+            
+            # saving retrainable after each epoch
+            print(f'Epoch {epoch} complete!')
+            os.makedirs('checkpoints/%s' % args.name, exist_ok=True)
+            PATH1 = 'checkpoints/%s/epoch_%d_%s_resumable.pth' % (args.name, epoch, args.name)
+            checkpoint = {
+                'step': total_steps,
+                'epoch': epoch,
+                'model_state_dict': model.module.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+            }
+            torch.save(checkpoint, PATH1)
+    
     logger.close()
     PATH = 'checkpoints/%s.pth' % args.name
     torch.save(model.state_dict(), PATH)
@@ -256,15 +323,18 @@ if __name__ == '__main__':
     parser.add_argument('--restore_ckpt', help="restore checkpoint")
     parser.add_argument('--small', action='store_true', help='use small model')
     parser.add_argument('--validation', type=str, nargs='+')
+    parser.add_argument('--resume_training', action='store_true', help='reload states and resume training')
 
     parser.add_argument('--lr', type=float, default=0.00002)
     parser.add_argument('--num_steps', type=int, default=100000)
     parser.add_argument('--batch_size', type=int, default=6)
+    parser.add_argument('--effective_batch_size', type=int, default=6)
     parser.add_argument('--image_size', type=int, nargs='+', default=[384, 512])
     parser.add_argument('--gpus', type=int, nargs='+', default=[0,1])
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
 
     parser.add_argument('--iters', type=int, default=12)
+    parser.add_argument('--iters_cascade', type=int, default=12)
     parser.add_argument('--wdecay', type=float, default=.00005)
     parser.add_argument('--epsilon', type=float, default=1e-8)
     parser.add_argument('--clip', type=float, default=1.0)
