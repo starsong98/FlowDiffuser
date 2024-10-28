@@ -81,10 +81,11 @@ def create_kitti_submission(model, iters=24, output_path='kitti_submission'):
 
 
 @torch.no_grad()
-def validate_chairs(model, iters=24, output_path=None, split='validation'):
+def validate_chairs_ensemble(model, iters=24, output_path=None, split='validation', ensemble=10):
     """ Perform evaluation on the FlyingChairs (test) split """
     model.eval()
     epe_list = []
+    assert ensemble > 1
     # detailed stat saving - part 1 - header
     if output_path is not None:
         lines_to_save = [['filename0', 'filename1', 'epe']]
@@ -120,10 +121,19 @@ def validate_chairs(model, iters=24, output_path=None, split='validation'):
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
 
-        _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
-        epe = torch.sum((flow_pr[0].cpu() - flow_gt)**2, dim=0).sqrt()
-        err = epe.clone()   # for later
-        epe_list.append(epe.view(-1).numpy())
+        flows_pr = []
+        errmaps = []
+        
+        # all predictions
+        for i in tqdm(range(ensemble)):
+            _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+            epe = torch.sum((flow_pr[0].cpu() - flow_gt)**2, dim=0).sqrt()
+            err = epe.clone()   # for later
+            epe_list.append(epe.view(-1).numpy())   # TODO refine the error computations
+            flows_pr.append(flow_pr)
+            errmaps.append(err)
+        
+
 
         # detailed stat saving - part 2 & 3 - individual sample handling
         if output_path is not None:
