@@ -176,5 +176,42 @@
                 "CUDA_VISIBLE_DEVICES": "5"
             }
         },
+        {
+            "name": "Real Video Evaluation - Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/evaluate.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model", "checkpoints/FlowDiffuser-things.pth",
+                "--dataset", "infer_singleclip",
+                "--output_path", "results/modelzoo-AF-T-debug",
+                //"--scale_factor", "-1.0", // XVFI OOM
+                "--scale_factor", "-2.0",
+                "--clip_root", "datasets_realvideo/XVFI_SAMPLE"
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1"
+            }
+        },
+        {
+            "name": "Real Video Evaluation - Ensemble Debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/evaluate.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--model", "checkpoints/FlowDiffuser-things.pth",
+                "--dataset", "infer_singleclip_ensemble",
+                "--output_path", "results/modelzoo-AF-T-debug_ensemble",
+                //"--scale_factor", "-1.0", // XVFI OOM
+                "--scale_factor", "-2.0",
+                "--clip_root", "datasets_realvideo/XVFI_SAMPLE",
+                "--ensembles", "10",
+            ],
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "1"
+            }
+        },
     ]
 }

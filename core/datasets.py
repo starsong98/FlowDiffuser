@@ -300,6 +300,30 @@ def fetch_dataloader(args, TRAIN_DS='C+T+K+S+H'):
     return train_loader
 
 
+class RealVideoSingle(FlowDataset):
+    # personal implementation; loads a single video clip.
+    # assumes that an entire folder comprises entirely of input frames, sorted alphabetically.
+    # option is given to reverse that though.
+    # implemented by Taewoo Suh, 2024 Oct.
+    def __init__(self, aug_params=None, root='datasets_realvideo/DAVIS_SAMPLE', reverse=False):
+        super(RealVideoSingle, self).__init__(aug_params, sparse=True)
+        self.is_test = True
+        
+        images = sorted(os.listdir(root))
+
+        if reverse:
+            images = images.reverse()
+
+        for i in range(len(images)):
+            images[i] = os.path.join(root, images[i])
+
+        sequence = os.path.basename(root)
+
+        for i in range(len(images)-1):
+            self.image_list += [ [images[i], images[i+1]] ]
+            self.extra_info += [ [sequence, i] ]
+
+
 if __name__ == "__main__":
     # grab args [image_size], [dataset_root]
     import argparse
